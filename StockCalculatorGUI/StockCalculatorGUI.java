@@ -42,9 +42,7 @@ public final class StockCalculatorGUI extends JFrame implements ItemListener {
 
     private boolean saveToFile;
     private final StockCalculator backEnd;
-    private final DetailsPane detailsModal;
 
-    // TODO: refactor to focus on constructing
     public StockCalculatorGUI() {
         super("Basic Stock Calculator");
         this.OP_HANDLER = new OperationHandler();
@@ -124,7 +122,6 @@ public final class StockCalculatorGUI extends JFrame implements ItemListener {
         mainPanel.add(resultsPanel);
 
         this.backEnd = new StockCalculator();
-        this.detailsModal = new DetailsPane();
 
         this.setSize(400, 400);
         this.setDefaultCloseOperation(EXIT_ON_CLOSE);
@@ -159,134 +156,41 @@ public final class StockCalculatorGUI extends JFrame implements ItemListener {
         return this;
     }
 
-    private class StockCalculator {
-        private static final double COMMISSION = 0.0025, VAT = 0.12, PSE = 0.00005, SCCP = 0.0001, STT = 0.006;
+    @Override
+    public void itemStateChanged(ItemEvent f) {
+        this.saveToFile = (f.getStateChange() == ItemEvent.SELECTED);
+    }
 
-        private Stock stk;
-        private double minDesiredReturn;
+    private class DetailsPane extends JDialog {
+        private JTable DETAILS_TABLE;
+        private TableModel DATA_MODEL;
+        private JScrollPane DT_SCROLLPANE;
 
-        private double totalBuyPrice, cutLoss, minSellPrice, gross, profit;
+        public DetailsPane(double[][] detailedResults) {
+            super(getParentFrame(), true);
 
-        private double[][] detailedResults;
+            String[] columnNames = { "SELL @", "GROSS", "PROFIT" };
 
-        public StockCalculator() {
-            this.stk = null;
-            this.minDesiredReturn = 0.0;
-            this.detailedResults = new double[5][3];
+            this.DATA_MODEL = new DoubleTypeTableModel(5, 3, columnNames, detailedResults);
+            this.DETAILS_TABLE = new JTable(this.DATA_MODEL);
+            this.DETAILS_TABLE.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+            this.DT_SCROLLPANE = new JScrollPane(this.DETAILS_TABLE);
+
+            this.setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+            this.setSize(475, 175);
+            this.setResizable(false);
         }
 
-        private double addChargesBuy(double commPrice, double IBP) {
-            return (IBP + commPrice + (commPrice * VAT) + (IBP * PSE) + (IBP * SCCP));
-        }
+        public void displayDetailedResults(Stock stk, double[][] detailedResults) {
+            Container detailsPanel = this.getContentPane();
+            detailsPanel.setLayout(new FlowLayout());
 
-        private double addChargesSell(double commPrice, double sellPrice) {
-            return sellPrice - ((20) + (VAT * 20) + (PSE * sellPrice) + (SCCP * sellPrice) + (STT * sellPrice));
-        }
+            detailsPanel.add(new JLabel("Possible selling targets (0.5 intervals)"));
+            detailsPanel.add(this.DT_SCROLLPANE);
 
-        private double grossBuyPrice() {
-            double IBP = this.stk.getNumOfShares() * this.stk.getPricePerShare();
-            double commPrice = IBP * COMMISSION;
-
-            if (commPrice < 20)
-                return this.addChargesBuy(20, IBP);
-            else
-                return this.addChargesBuy(commPrice, IBP);
-        }
-
-        private double grossSellPrice(double sellPrice) {
-            double totalSellPrice = this.stk.getNumOfShares() * sellPrice;
-            double commPrice = sellPrice * COMMISSION;
-
-            if (commPrice < 20)
-                return this.addChargesSell(20, totalSellPrice);
-            else
-                return this.addChargesSell(commPrice, totalSellPrice);
-        }
-
-        private void cutLoss() {
-            double returnValue = 0, potentialLoss = this.totalBuyPrice - (0.05 * this.totalBuyPrice),
-                    sellPrice = this.minSellPrice;
-
-            returnValue = this.grossSellPrice(sellPrice);
-
-            while (returnValue > potentialLoss) {
-                sellPrice -= 0.01;
-                returnValue = this.grossSellPrice(sellPrice);
-            }
-
-            this.cutLoss = (sellPrice += 0.01); // compensation for the additional loop
-        }
-
-        private void sellTarget() {
-            double returnValue = 0, sellPrice = this.stk.getPricePerShare();
-            while (returnValue < this.minDesiredReturn) {
-                double totalSellPrice = this.stk.getNumOfShares() * sellPrice;
-                double commPrice = totalSellPrice * COMMISSION;
-
-                if (commPrice < 20)
-                    returnValue = this.addChargesSell(20, totalSellPrice) - this.totalBuyPrice;
-                else
-                    returnValue = this.addChargesSell(commPrice, totalSellPrice) - this.totalBuyPrice;
-
-                sellPrice += 0.01;
-            }
-
-            this.minSellPrice = sellPrice;
-
-            for (int i = 0; i < 5; i++) {
-                double grossSellPrice = grossSellPrice(sellPrice);
-
-                if (i == 0) {
-                    this.gross = grossSellPrice;
-                    this.profit = grossSellPrice - this.totalBuyPrice;
-                }
-
-                this.detailedResults[i][0] = sellPrice;
-                this.detailedResults[i][1] = grossSellPrice;
-                this.detailedResults[i][2] = grossSellPrice - this.totalBuyPrice;
-                sellPrice += 0.5;
-            }
-        }
-
-        private void saveResults() {
-            try {
-                BufferedWriter fw = new BufferedWriter(new FileWriter("saveResults.txt", true));
-
-                Calendar timestamp = Calendar.getInstance();
-                int Y = timestamp.get(Calendar.YEAR);
-                int M = timestamp.get(Calendar.MONTH) + 1;
-                int D = timestamp.get(Calendar.DAY_OF_MONTH);
-
-                int HH = timestamp.get(Calendar.HOUR_OF_DAY);
-                int MM = timestamp.get(Calendar.MINUTE);
-                int SS = timestamp.get(Calendar.SECOND);
-
-                fw.write(String.format("LOG: %d-%d-%d %d:%d:%d\n", Y, M, D, HH, MM, SS));
-                fw.write("\nStock Code: " + this.stk.getStockCode());
-                fw.write(String.format("\nTotal Buying Price: %.2f", this.totalBuyPrice));
-                fw.write(String.format("\nMinimum Desired Return (MDR): %.2f", this.minDesiredReturn));
-                fw.write(String.format("\nMinimum Sell Price to Achieve MDR: %.2f\n\n", this.minSellPrice));
-
-                fw.close();
-            } catch (IOException e) {
-                JOptionPane.showMessageDialog(null, "Error saving the results to file.", "ERROR",
-                        JOptionPane.ERROR_MESSAGE);
-            }
-        }
-
-        public double[][] calculate(Stock stk, double minDesiredReturn) {
-            this.stk = stk;
-            this.minDesiredReturn = minDesiredReturn;
-
-            this.totalBuyPrice = this.grossBuyPrice();
-            this.sellTarget();
-            this.cutLoss();
-            updateResultFields(this.totalBuyPrice, this.cutLoss, this.minSellPrice, this.gross, this.profit);
-
-            if (saveToFile)
-                this.saveResults();
-
-            return this.detailedResults;
+            this.setLocationRelativeTo(getParentFrame());
+            this.setTitle("Detailed results for " + stk.getStockCode());
+            this.setVisible(true);
         }
     }
 
@@ -309,7 +213,14 @@ public final class StockCalculatorGUI extends JFrame implements ItemListener {
                         stockCode = STK_CODE_FIELD.getText();
                         this.stk = new Stock(stockCode, numOfShares, pricePerShare);
                     }
+
                     this.detailedResults = backEnd.calculate(this.stk, minDesiredReturn);
+
+                    updateResultFields(backEnd.totalBuyPrice, backEnd.cutLoss, backEnd.minSellPrice, backEnd.gross, backEnd.profit);
+
+                    if (saveToFile){
+                        saveResults(this.stk, backEnd.totalBuyPrice, backEnd.minDesiredReturn, backEnd.minSellPrice);
+                    }
 
                     DETAILS_BTN.setEnabled(true);
                 } else if (e.getActionCommand().equals(CLR_BTN.getText())) {
@@ -319,7 +230,7 @@ public final class StockCalculatorGUI extends JFrame implements ItemListener {
                     JOptionPane.showMessageDialog(null, "v.1.4\n\nCreated by:\nJohn Markton Olarte\nJanley Molina",
                             "About this program", JOptionPane.INFORMATION_MESSAGE);
                 else if (e.getActionCommand().equals(DETAILS_BTN.getText()))
-                    detailsModal.displayDetailedResults(this.stk, this.detailedResults);
+                    new DetailsPane(detailedResults).displayDetailedResults(this.stk, this.detailedResults);
             } catch (NumberFormatException n) {
                 JOptionPane.showMessageDialog(null, "Please check your input for invalid or incomplete fields.",
                         "INVALID OR INCOMPLETE INPUT", JOptionPane.ERROR_MESSAGE);
@@ -327,42 +238,29 @@ public final class StockCalculatorGUI extends JFrame implements ItemListener {
         }
     }
 
-    @Override
-    public void itemStateChanged(ItemEvent f) {
-        this.saveToFile = (f.getStateChange() == ItemEvent.SELECTED);
-    }
+    private void saveResults(Stock stk, double totalBuyPrice, double minDesiredReturn, double minSellPrice) {
+        try {
+            BufferedWriter fw = new BufferedWriter(new FileWriter("saveResults.txt", true));
 
-    private class DetailsPane extends JDialog {
-        private JTable DETAILS_TABLE;
-        private TableModel DATA_MODEL;
-        private JScrollPane DT_SCROLLPANE;
+            Calendar timestamp = Calendar.getInstance();
+            int Y = timestamp.get(Calendar.YEAR);
+            int M = timestamp.get(Calendar.MONTH) + 1;
+            int D = timestamp.get(Calendar.DAY_OF_MONTH);
 
-        public DetailsPane() {
-            super(getParentFrame(), true);
+            int HH = timestamp.get(Calendar.HOUR_OF_DAY);
+            int MM = timestamp.get(Calendar.MINUTE);
+            int SS = timestamp.get(Calendar.SECOND);
 
-            this.DATA_MODEL = null;
-            this.DETAILS_TABLE = new JTable(this.DATA_MODEL);
-            this.DETAILS_TABLE.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
-            this.DT_SCROLLPANE = new JScrollPane(this.DETAILS_TABLE);
+            fw.write(String.format("LOG: %d-%d-%d %d:%d:%d\n", Y, M, D, HH, MM, SS));
+            fw.write("\nStock Code: " + stk.getStockCode());
+            fw.write(String.format("\nTotal Buying Price: %.2f", totalBuyPrice));
+            fw.write(String.format("\nMinimum Desired Return (MDR): %.2f", minDesiredReturn));
+            fw.write(String.format("\nMinimum Sell Price to Achieve MDR: %.2f\n\n", minSellPrice));
 
-            this.setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-            this.setSize(475, 175);
-            this.setResizable(false);
-        }
-
-        public void displayDetailedResults(Stock stk, double[][] detailedResults) {
-            String[] columnNames = { "SELL @", "GROSS", "PROFIT" };
-            this.DATA_MODEL = new DoubleTypeTableModel(5, 3, columnNames, detailedResults);
-
-            Container detailsPanel = this.getContentPane();
-            detailsPanel.setLayout(new FlowLayout());
-
-            detailsPanel.add(new JLabel("Possible selling targets (0.5 intervals)"));
-            detailsPanel.add(DT_SCROLLPANE);
-
-            this.setLocationRelativeTo(getParentFrame());
-            this.setTitle("Detailed results for " + stk.getStockCode());
-            this.setVisible(true);
+            fw.close();
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(null, "Error saving the results to file.", "ERROR",
+                    JOptionPane.ERROR_MESSAGE);
         }
     }
 
